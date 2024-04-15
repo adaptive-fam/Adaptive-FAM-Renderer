@@ -1,12 +1,3 @@
-/*
- * Jianxin (Jason) Sun, sunjianxin66@gmail.com
- * Visualization Lab
- * School of Computing
- * University of Nebraska-Lincoln
- *
- * Volume rendering using rmdnCache
- */
-
 #include <torch/torch.h>
 #include <torch/script.h>
 #include <torch/cuda.h>
@@ -50,11 +41,6 @@
 #include <pthread.h>
 #include <map>
 
-// libtorch
-// #include <torch/torch.h>
-// #include "/home/js/Downloads/libtorch/include/torch/script.h"
-// #include "/home/js/Downloads/libtorch/include/torch/csrc/api/include/torch/torch.h"
-
 typedef unsigned int uint;
 typedef unsigned char uchar;
 	
@@ -89,9 +75,7 @@ typedef unsigned char uchar;
 
 #define MFA_DEGREE 2
 #define MFA_CTRL_PTS_SIZE_EACH_DIMENSION 76
-// #define MFA_CTRL_PTS_SIZE_EACH_DIMENSION 38
 #define MFA_KNOT_SIZE_EACH_DIMENSION 79 // MFA_CTRL_PTS_SIZE_EACH_DIMENSION + MFA_DEGREE + 1
-// #define MFA_KNOT_SIZE_EACH_DIMENSION 41 // MFA_CTRL_PTS_SIZE_EACH_DIMENSION + MFA_DEGREE + 1
 
 bool doingRendering = false;
 bool doingPrefetching = false;
@@ -148,29 +132,22 @@ const char *volumeFilePath = "/home/js/ws/pacificVis/notebook/data_blocks_flame/
 // const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_flat/"; // mfa control points of flat ML dataset
 // const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build_org/src/fixed/data_flame/"; // mfa control points of flame dataset, without adaptive encoding, 76-76
 const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_flame_adaptive/"; // mfa control points of flame dataset, with adaptive encoding, 76-x
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/trimmer/data/"; // mfa control points
 
 const char *volumeFilename = "/home/js/ws/notebook/flameDsDs/0.blk";
 cudaExtent volumeSize = make_cudaExtent(32, 32, 32);
 cudaExtent microBlockSize = make_cudaExtent(BLOCK_SIZE_EACH_DIMENSION, BLOCK_SIZE_EACH_DIMENSION, BLOCK_SIZE_EACH_DIMENSION);
 typedef float VolumeType;
 
-// uint width = 4, height = 4; // testing used
-uint width = 512, height = 512; // testing used
-// uint width = 1024, height = 1024; // experiment used
-// uint width = 1536, height = 1536;
+uint width = 512, height = 512;
+// uint width = 1024, height = 1024;
 dim3 blockSize(16, 16);
-// dim3 blockSize(4, 4);
 dim3 gridSize;
 
 float3 viewRotation;
-// float3 viewTranslation = make_float3(0.0, 0.0, -4.0f);
 float3 viewTranslation = make_float3(0.0, 0.0, 0.0f);
 float invViewMatrix[12];
 
-// float density = 1.0f;
 float density = 0.05f;
-// float density = 0.005f;
 float brightness = 1.0f;
 float transferOffset = 0.0f;
 float transferScale = 1.0f;
@@ -249,14 +226,8 @@ int size_y;
 int size_z;
 
 std::string imagePath = "screenShots/";
-// int test_size = 400; // for benchmarks
-// int test_size = 360; // only for demo
-// int test_size = 60; // only for demo
-// int test_size = 24; // only for demo, pacificVis = number of camera locations, start.dat trajectory
 int test_size = 200; // for benchmarks, damsampled from original test trajectory
 
-torch::jit::script::Module net_lstm;
-torch::jit::script::Module net_mdn;
 torch::Tensor seq = torch::tensor({{{0.0, 0.0, 0.0},
 									{0.0, 0.0, 0.0},
 									{0.0, 0.0, 0.0}}});
@@ -1002,40 +973,6 @@ void updateSeq(float x, float y, float z) {
 	seq[0][2][2] = z;
 }
 
-void queryLstm(float &x_next, float &y_next, float &z_next) {
-	std::vector<torch::jit::IValue> input;
-	input.push_back(seq);
-	auto out_lstm = net_lstm.forward(input).toTensor();
-	x_next = out_lstm[0][0].item<float>();
-	y_next = out_lstm[0][1].item<float>();
-	z_next = out_lstm[0][2].item<float>();
-}
-
-void queryMdn(float theta_lstm, float phi_lstm,
-			  float &mu_theta, float &mu_phi,
-			  float &sigma_theta, float &sigma_phi,
-			  float &correlation) {
-	torch::Tensor angle = torch::tensor({0.0, 0.0});
-	angle[0] = theta_lstm/180.0;
-	angle[1] = phi_lstm/360.0;
-	std::vector<torch::jit::IValue> input;
-	input.push_back(angle);
-	auto out_mdn = net_mdn.forward(input);
-	float max_pi_value = -1.0;
-	int max_pi_index;
-	for (int i = 0; i < 5; i++) {
-		float pi_value = out_mdn.toTuple()->elements()[0].toTensor()[i].item<float>();
-		if (max_pi_value < pi_value) {
-			max_pi_value = pi_value;
-			max_pi_index = i;
-		}
-	}
-	mu_theta = out_mdn.toTuple()->elements()[1].toTensor()[max_pi_index].item<float>();
-	mu_phi = out_mdn.toTuple()->elements()[2].toTensor()[max_pi_index].item<float>();
-	sigma_theta = out_mdn.toTuple()->elements()[3].toTensor()[max_pi_index].item<float>();
-	sigma_phi = out_mdn.toTuple()->elements()[4].toTensor()[max_pi_index].item<float>();
-	correlation = out_mdn.toTuple()->elements()[5].toTensor()[max_pi_index].item<float>();
-}
 
 
 void getEllipsePoints(float mu_theta, float mu_phi, float sigma_theta, float sigma_phi, float correlation,
@@ -1486,36 +1423,6 @@ void *renderThreadFunc(void *threadArg) {
     glutMainLoop();
 }
 
-void getRealTimePrediction(float &dis_center, float &theta_center, float &phi_center, std::vector<float> &thetas, std::vector<float> &phis) {
-	/* make prediction on next camera location from LSTM*/
-	float x_next, y_next, z_next;
-	queryLstm(x_next, y_next, z_next);
-	// std::cout << "x_next, y_next, z_next: " << x_next << " " << y_next << " " << z_next << std::endl;
-	float theta_p, phi_p, dis_p; 
-	xyz2tpd(x_next, y_next, z_next, theta_p, phi_p, dis_p);
-	/* make prediction on next camera location and range from MDN*/
-	float mu_theta, mu_phi, sigma_theta, sigma_phi, correlation;
-	queryMdn(theta_p, phi_p, mu_theta, mu_phi, sigma_theta, sigma_phi, correlation);
-	// std::cout << "mu_theta, mu_phi, sigma_theta, sigma_phi, correlation: " << mu_theta << " "
-	// 																	   <<  mu_phi << " "
-	// 																	   << sigma_theta << " " 
-	// 																	   << sigma_phi << " "
-	// 																	   << correlation << std::endl;
-	mu_theta = mu_theta*180.0;
-	mu_phi = mu_phi*360.0;
-	sigma_theta = sigma_theta*180.0;
-	sigma_phi = sigma_phi*360.0;
-
-	dis_center = dis_p;
-	theta_center = mu_theta;
-	phi_center = mu_phi;
-
-	// int points_num = 115;
-	// int points_num = 10;
-	int points_num = 4;
-	getEllipsePoints(mu_theta, mu_phi, sigma_theta, sigma_phi, correlation, points_num, thetas, phis);
-}
-
 std::map<int, std::vector<std::vector<int>>> getConerBlockMap(std::string fileName) {
 	std::map<int, std::vector<std::vector<int>>> cbm;
 	std::ifstream infile(fileName);
@@ -1663,32 +1570,6 @@ void *prefetchThreadFunc(void *threadArg) {
 					*/
 				}
 			}
-			if (method_used == "rmdn-realtime") { // for RmdnCache with real-time inference
-				if (camera_index >= 3 && camera_index <= 399) { // Skip the first 2 and the last camera locations
-					float dis_center, theta_center, phi_center;
-				   	std::vector<float> thetas, phis;	
-					t_s = std::chrono::high_resolution_clock::now();
-					getRealTimePrediction(dis_center, theta_center, phi_center, thetas, phis);
-					t_e = std::chrono::high_resolution_clock::now();
-					getCurrentVisibleBlocksRangeRealtime(theta_center, phi_center, dis_center,
-												 		 VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4,
-												 		 BLOCK_SIZE,
-												 		 30,
-												 		 visible_blocks_predict,
-												 		 thetas, phis,
-												 		 cornerBlockMapArray,
-												 		 blockCheck);
-					/*
-					std::ofstream outf;
-					outf.open("prefetchedVbsRealtime.txt", std::ios_base::app);
-					for (int i = 0; i < visible_blocks_predict.size(); i++) {
-						outf << visible_blocks_predict[i] << " ";
-					}
-					outf << "\n";
-					outf.close();
-					*/
-				}
-			}
 
 			// std::cout << "vb size::::::: " << visible_blocks_predict.size() << std::endl;
 			t_end = std::chrono::high_resolution_clock::now();
@@ -1754,42 +1635,7 @@ void *prefetchThreadFunc(void *threadArg) {
 }
 
 int main(int argc, char **argv) {
-#if 1
-	#if 0 // used for generating the corner block map, only need to run once and save the map to hard drive for later loading
-	/* generate corner block map */
-	cornerBlockMap = createCornerBlockMap(VOLUME_SIZE_4, BLOCK_SIZE);
-	std::ofstream outff;
-	outff.open("cornerBlockMap.txt");
-	for (int i = 0; i < cornerBlockMap.size(); i++) {
-		for (int j = 0; j < cornerBlockMap[i].size(); j++) {
-				outff << i << " " << j << " ";
-			for (int k = 0; k < cornerBlockMap[i].at(j).size(); k++) {
-				outff << cornerBlockMap[i].at(j).at(k) << " ";
-			}
-			outff << "\n";
-		}
-	}
-	outff.close();
-	#endif
-	/* for testing correctness of cornerblockmap
-	cornerBlockMap = getConerBlockMap("cornerBlockMap.txt");
-	std::ofstream outff;
-	outff.open("map.txt");
-	for (int i = 0; i < cornerBlockMap.size(); i++) {
-		for (int j = 0; j < cornerBlockMap[i].size(); j++) {
-			for (int k = 0; k < cornerBlockMap[i].at(j).size(); k++) {
-				if ((j == cornerBlockMap[i].size() - 1) && (k == cornerBlockMap[i].at(j).size() - 1)) {
-					outff << cornerBlockMap[i].at(j).at(k);
-				} else {
-					outff << cornerBlockMap[i].at(j).at(k) << ",";
-				}
-			}
-		}
-		outff << "\n";
-	}
-	outff.close();
-	*/
-	/* read in the corner map */
+	/* read in the corner map, for fast look up of visible micro-blocks */
 	cornerBlockMap = getConerBlockMap("cornerBlockMap.txt");
 	cornerBlockMapArray = (int*)malloc(sizeof(int)*17*17*17*4*9);
 	memset(cornerBlockMapArray, 0, sizeof(int)*17*17*17*4*9);
@@ -1807,33 +1653,12 @@ int main(int argc, char **argv) {
     std::cout << "Method: " << method << std::endl;
     std::cout << "Model: " << model << std::endl;
     std::cout << "Test dataset: " << test_dataset_idx << std::endl;
-	/* Read pretrained models */
-	net_lstm = torch::jit::load("notebook/traced_lstm.pt");
-	net_mdn = torch::jit::load("notebook/traced_mdn.pt");
 
 	// Read real camera trajectory
 	std::ifstream infile;
-	// std::string camera_trajectory = "/home/js/ws/rmdnCache/performance/data/test/test_1.dat";
-	// std::string camera_trajectory = "../notebook/start.dat";
-
-	// std::string camera_trajectory = "../../rmdnCache//performance/data/test/test_1.dat";
-	// std::string camera_trajectory = "../../rmdnCache//performance/data/test/test_2.dat";
-	// std::string camera_trajectory = "../../rmdnCache//performance/data/test/test_3.dat";
-	// std::string camera_trajectory = "../../rmdnCache//performance/data/test/test_4.dat";
 	
-	// std::string camera_trajectory = "../../rmdnCache//performance/data/test/test_" + test_dataset_idx + ".dat";
-	std::string camera_trajectory = "../notebook/test_" + test_dataset_idx + "_downsampled_by_2.dat";
-
-	// std::string camera_trajectory = "../../rmdnCache//performance/data/test/test_5.dat";
-	// std::string camera_trajectory = "../notebook/test_1_downsampled_by_4.dat";
-	// std::string camera_trajectory = "../performance/notebook/mytest.dat";
-	// std::string camera_trajectory = "../performance/notebook/mytest2.dat";
-	
-	// test for tvcg revision
-	// std::string camera_trajectory = "revision/test_2_adjust.dat";
-	// std::string camera_trajectory = "revision/test_3_adjust.dat";
-	// std::string camera_trajectory = "revision/test_4_adjust.dat";
-
+	std::string camera_trajectory = "trajectories/test_" + test_dataset_idx + ".dat";
+	// std::string camera_trajectory = "../notebook/test_" + test_dataset_idx + "_downsampled_by_2.dat";
 
   	infile.open(camera_trajectory, std::ios::binary);
 	assert(infile);
@@ -1962,6 +1787,5 @@ int main(int argc, char **argv) {
     	exit(-1);
 	}
    	pthread_exit(NULL);
-#endif
 	return 0;
 }

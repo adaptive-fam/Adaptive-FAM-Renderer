@@ -9,4 +9,4 @@ This repo contains the code of the renderer that generates visualization results
 
 -Out-of-core caching for handling large-scale input data.
 
--CPU-acceleration through CUDA kernel functions.
+-GPU-acceleration through CUDA kernel functions.

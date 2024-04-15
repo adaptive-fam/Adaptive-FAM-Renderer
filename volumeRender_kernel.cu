@@ -1,12 +1,3 @@
-/*
- * Jianxin (Jason) Sun, sunjianxin66@gmail.com
- * Visualization Lab
- * School of Computing
- * University of Nebraska-Lincoln
- */
-
-// Simple 3D volume renderer
-
 #ifndef _VOLUMERENDER_KERNEL_CU_
 #define _VOLUMERENDER_KERNEL_CU_
 
