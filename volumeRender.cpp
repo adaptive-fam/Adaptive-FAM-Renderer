@@ -93,45 +93,8 @@ struct threadData {
 
 const char *sSDKsample = "CUDA 3D Volume Render using RmdnCache";
 
-// const char *volumeFilePath = "../data/data/blocks/";
-// const char *volumeFilePath = "../data/data/blocks_shrink/";
-// const char *volumeFilePath = "../data/data/blocks_shrink_extend/";
-// const char *volumeFilePath = "/home/js/ws/rmdnCache/data/data/blocks_shrink_extend/";
-const char *volumeFilePath = "/home/js/ws/pacificVis/notebook/data_blocks_flame/"; // discrete block
-// const char *volumeFilePath = "/home/js/ws/pacificVis/notebook/data/"; // discrete block
-// const char *volumeFilePath = "/home/js/ws/pacificVis/notebook/data_blocks/"; // discrete block of regular ML dataset
-// Compression test
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/zfp/zfp/build/ratio_9.155/"; // discrete block of regular ML dataset, zfp compressed with ratio = 9.155
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/zfp/zfp/build/ratio_21.4375/"; // discrete block of regular ML dataset, zfp compressed with ratio = 21.4375
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/zfp/zfp/build/ratio_66.075/"; // discrete block of regular ML dataset, zfp compressed with ratio = 66.075
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/zfp/zfp/build/ratio_103.275/"; // discrete block of regular ML dataset, zfp compressed with ratio = 103.275
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/sz3/SZ3/build/tools/sz3/ratio_7.731387125/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 7.731387125
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/sz3/SZ3/build/tools/sz3/ratio_25.993068625/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 25.993068625
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/sz3/SZ3/build/tools/sz3/ratio_64.314592/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 64.314592
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/sz3/SZ3/build/tools/sz3/ratio_95.34646975/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 95.34646975
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/tthresh/tthresh/build/ratio_7.63451/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 7.63451
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/tthresh/tthresh/build/ratio_62.6881875/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 62.6881875
-// const char *volumeFilePath = "/home/js/ws/pacificVis/compressors/tthresh/tthresh/build/ratio_121.847125/"; // discrete block of regular ML dataset, sz3 compressed with ratio = 121.847125
-
-// const char *volumeFilePath = "/home/js/ws/pacificVis/notebook/data_blocks_flat/"; // discrete block of flat ML dataset
-// const char *volumeFilePath = "/home/js/ws/pacificVis/notebook/test/"; // discrete block
-
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/trimmer/data_76x76x76/"; // mfa control points
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_76x76x76_mfab/"; // mfa control points
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data/"; // mfa control points of regular ML dataset
-
-// Compression test
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_test_76/"; // mfa control points of regular ML dataset, only level_4, 76-76 q 2, compression ratio = 1
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_test_38/"; // mfa control points of regular ML dataset, only level_4, 76-38 q 2, compression ratio = 76x76x76/38x38x38
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_test_28/"; // mfa control points of regular ML dataset, only level_4, 76-38 q 2, compression ratio = 76x76x76/28x28x28
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_test_19/"; // mfa control points of regular ML dataset, only level_4, 76-19 q 2, comparession ratio = 76x76x76/19x19x19
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_test_9/"; // mfa control points of regular ML dataset, only level_4, 76-19 q 2, comparession ratio = 76x76x76/9x9x9
-
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_compressed/"; // mfa control points of regular ML dataset, 76-38_q2
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_test/"; // mfa control points of regular ML dataset, mixed # of ctrlpts
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_flat/"; // mfa control points of flat ML dataset
-// const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build_org/src/fixed/data_flame/"; // mfa control points of flame dataset, without adaptive encoding, 76-76
-const char *mfaFilePath = "/home/js/ws/pacificVis/mfa_utility/build/src/fixed/data_flame_adaptive/"; // mfa control points of flame dataset, with adaptive encoding, 76-x
+const char *volumeFilePath = "../Adaptive-FAM/data_blocks_flame/"; // micro-blocks
+const char *mfaFilePath = "../Adaptive-FAM/data_flame_adaptive/"; // micro-models encoded by Adaptive-FAM
 
 const char *volumeFilename = "/home/js/ws/notebook/flameDsDs/0.blk";
 cudaExtent volumeSize = make_cudaExtent(32, 32, 32);

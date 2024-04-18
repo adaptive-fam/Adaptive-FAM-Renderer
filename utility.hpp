@@ -9,11 +9,6 @@
 
 
 typedef float VolumeType;
-// #define CACHE_SIZE 135 // for test 1/test2 trajectory
-// #define CACHE_SIZE 126 // for test 3 trajectory
-// #define CACHE_SIZE 130 // for test 4 trajectory
-// #define CACHE_SIZE 200 // RmdnCache
-// #define CACHE_SIZE 150 // RmdnCache
 #define CACHE_SIZE 200
 
 
