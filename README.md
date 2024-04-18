@@ -24,7 +24,7 @@ make
 
 ### Run
 Usage: volumeRender [sample distance] [prefetching options] [encoding methods]
-- sample distance: The distance between contiguous samples on the ray of the ray casting volume visualization technique
+- sample distance: The distance between contiguous samples on the ray of the ray casting volume rendering
 - prefetching options: 
 	- lru: LRU caching policy without prefetching
 	- appa: LRU caching policy with APPA prefetching method
