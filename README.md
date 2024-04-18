@@ -5,10 +5,10 @@
 ### Introduction
 This repo contains the code of the renderer that generates visualization results through decoding micro-models encoded by Adaptive-FAM. The rendering framework supports:
 
--Multi-resolution for faster loading of content of interest
--Out-of-core caching for handling large-scale input data
--GPU-acceleration through CUDA kernel functions
--Prefetching techniques
+- Multi-resolution for faster loading of content of interest
+- Out-of-core caching for handling large-scale input data
+- GPU-acceleration through CUDA kernel functions
+- Prefetching techniques
 
 ###  Dependencies
 - C++11 or higher compiler.
