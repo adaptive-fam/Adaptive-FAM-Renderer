@@ -38,3 +38,15 @@ Run the renderer with root privilege for the cache droping action
 ### Output
 - Screenshots of each visualization rendering for quality evaluation. Images are save in .tga format in folder named "screenShot".
 - Benchmark profile, named benchmark.txt, for performance evaluation.
+
+### Change Input
+When rendering input micro-blocks or micro-models of a new dataset, modify the following paths in volumeRender.cpp:
+- volumeFilePath: Path to the micro-blocks with ghost area encoded using down sampling
+- mfaFilePath: Path to the micro-models encoded using Adaptive-FAM
+- camera_trajectory: Path to the new user trajectory
+- camera_trajectory_predict: Path to the predicted user trajectory using prefetching methods, ForeCache or LSTM
+
+### Acceleration Techniques
+- Find visible blocks: A lookup table, named cornerBlockMap.txt, is generated to avoid the exhausive search for the process of finding visible blocks. Please refer to the code for how to generate the lookup table.
+- Update cache: Utilizing low level memory operations to minimize caching latency for a given cache miss rate.
+- Mutithreading: Rendering and prefetching are handled on different threads at the same time for parallel process.

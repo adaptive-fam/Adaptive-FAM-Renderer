@@ -1191,7 +1191,95 @@ void *prefetchThreadFunc(void *threadArg) {
 	pthread_exit(NULL);
 }
 
+bool isInside(int blockIndex, int block_num, int unit, int corner_x, int corner_y, int corner_z) {
+	int z = blockIndex/(block_num*block_num);
+	int remain = blockIndex%(block_num*block_num);
+	int y = remain/block_num;
+	int x = remain%block_num;
+	
+	int x_lower = x*unit;
+	int y_lower = y*unit;
+	int z_lower = z*unit;
+	
+	int x_upper = x_lower + unit;
+	int y_upper = y_lower + unit;
+	int z_upper = z_lower + unit;
+
+	if ((corner_x >= x_lower && corner_x <= x_upper)&&(corner_y >= y_lower && corner_y <= y_upper)&&(corner_z >= z_lower && corner_z <= z_upper)) {
+		return true;
+	} else {
+		return false;
+	}
+}
+
+void getCoordinates(int corner, int &x, int &y, int &z) {
+	z = corner/(17*17); // 1/(17*17) integer portion
+	int remain = corner%(17*17); // 1%(17*17) remainding portion
+	y = remain/(17); 
+	x = remain%(17);
+}
+
+
+std::vector<int> getConnectBlocks(int corner, int level) {
+	int size = pow(2, (level + 1)); // if level = 0, then size = 2  and offset = 0            and totalBlockNum = 8    and unit = 8
+									// if level = 1, then size = 4  and offset = 8            and totalBlockNum = 64   and unit = 4
+									// if level = 2, then size = 8  and offset = 64 + 8       and totalBlockNum = 512  and unit = 2
+									// if level = 3, then size = 18 and offset = 512 + 64 + 8 and totalBlockNum = 4096 and unit = 1
+	int offset = 0;
+	if (level == 0 ) { offset = 0; }
+	if (level == 1 ) { offset = 8; }
+	if (level == 2 ) { offset = 64 + 8; }
+	if (level == 3 ) { offset = 512 + 64 + 8; }
+	int totalBlockNum = size*size*size;
+	int unit = 16/size;
+	std::vector<int> connectBlocks;
+
+	int x, y, z;
+	getCoordinates(corner, x, y, z);
+	for (int i = 0; i < totalBlockNum; i++) {
+		if (isInside(i, size, unit, x, y, z)) {
+			connectBlocks.push_back(i + offset);
+		}
+	}
+	return connectBlocks;
+}
+
+std::map<int, std::vector<std::vector<int>>> createCornerBlockMap(int volume_size_4, int block_size) {
+	int block_num = (volume_size_4 - 1)/(block_size - 2) + 1; // 16 + 1
+	int cover_num = block_num*block_num*block_num;
+	int levels = 4;
+
+	std::map<int, std::vector<std::vector<int>>> currentCornerBlockMap;
+	for (int i = 0; i < cover_num; i++) {
+		std::cout << i << std::endl;
+		std::vector<std::vector<int>> connectBlocksAll;
+		for (int j = 0; j < levels; j++) {
+			std::vector<int> connectBlocks = getConnectBlocks(i, j);
+			connectBlocksAll.push_back(connectBlocks);
+		}
+        currentCornerBlockMap[i] = connectBlocksAll;
+	}
+	return currentCornerBlockMap;
+}
+
 int main(int argc, char **argv) {
+#if 0 // used for generating the corner block map, only need to run once and save the map to hard drive for later loading
+	/* generate corner block map */
+	cornerBlockMap = createCornerBlockMap(VOLUME_SIZE_4, BLOCK_SIZE);
+	std::ofstream outff;
+	outff.open("cornerBlockMap.txt");
+	for (int i = 0; i < cornerBlockMap.size(); i++) {
+		for (int j = 0; j < cornerBlockMap[i].size(); j++) {
+				outff << i << " " << j << " ";
+			for (int k = 0; k < cornerBlockMap[i].at(j).size(); k++) {
+				outff << cornerBlockMap[i].at(j).at(k) << " ";
+			}
+			outff << "\n";
+		}
+	}
+	outff.close();
+#endif
+#if 1 // use corner block map to speed up the process of finding visible blocks
 	/* read in the corner map, for fast look up of visible micro-blocks */
 	cornerBlockMap = getConerBlockMap("cornerBlockMap.txt");
 	cornerBlockMapArray = (int*)malloc(sizeof(int)*17*17*17*4*9);
@@ -1305,5 +1393,6 @@ int main(int argc, char **argv) {
     	exit(-1);
 	}
    	pthread_exit(NULL);
+#endif
 	return 0;
 }
