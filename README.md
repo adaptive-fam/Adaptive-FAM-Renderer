@@ -23,16 +23,17 @@ make
 ```
 
 ### Run
-Usage: volumeRender [sample distance] [prefetching options] [encoding methods]
+Usage: sudo volumeRender [sample distance] [prefetching options] [encoding methods]
 - sample distance: The distance between contiguous samples on the ray of the ray casting volume rendering
 - prefetching options: 
-	- lru: LRU caching policy without prefetching
+	- lru: LRU caching policy without prefetching (default)
 	- appa: LRU caching policy with APPA prefetching method
 	- markov: LRU caching policy with ForeCache prefetching method
 	- lsrm: LRU caching policy with LSTM prefetching method
 - encoding methods:
-	- dis: Using discrete micro-blocks encoded with down sampling with ghost area
+	- ds: Using discrete micro-blocks encoded with down sampling with ghost area (default)
 	- mfa: Using continuous micro-blocks encoded with Adaptive-FAM
+Run the renderer with root privilege for the cache droping action
 
 ### Output
 - Screenshots of each visualization rendering for quality evaluation. Images are save in .tga format in folder named "screenShot".

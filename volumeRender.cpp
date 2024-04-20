@@ -91,12 +91,13 @@ struct threadData {
 	char **argv;
 };
 
-const char *sSDKsample = "CUDA 3D Volume Render using RmdnCache";
+const char *sSDKsample = "Out-of-core Multi-resolution CUDA 3D Volume Render";
 
+// Provide the path of micro-blocks (with ghost area) or micro-models for different dataset
 const char *volumeFilePath = "../Adaptive-FAM/data_blocks_flame/"; // micro-blocks
 const char *mfaFilePath = "../Adaptive-FAM/data_flame_adaptive/"; // micro-models encoded by Adaptive-FAM
 
-const char *volumeFilename = "/home/js/ws/notebook/flameDsDs/0.blk";
+const char *volumeFilename;
 cudaExtent volumeSize = make_cudaExtent(32, 32, 32);
 cudaExtent microBlockSize = make_cudaExtent(BLOCK_SIZE_EACH_DIMENSION, BLOCK_SIZE_EACH_DIMENSION, BLOCK_SIZE_EACH_DIMENSION);
 typedef float VolumeType;
@@ -151,8 +152,6 @@ std::vector<int> cache_knot_size_list; // size list for all cached knot blocks i
 int camera_index = 0;
 void *h_visible_blocks_data_1 = malloc(173834496);
 void *h_visible_blocks_data_2 = malloc(173834496);
-void *cache_data_1 = malloc(351180800); // All blocks data in cache
-void *cache_data_2 = malloc(351180800); // All blocks data in cache
 
 size_t cache_data_size = microBlockSize.width*microBlockSize.height*microBlockSize.depth*sizeof(VolumeType)*CACHE_SIZE; // 77x77x77x4x200
 void *cache_data = malloc(cache_data_size); // All blocks data in cache
@@ -180,8 +179,8 @@ bool exit_by_user = false;
 float sampleDistance = 0;
 std::map<int, std::vector<std::vector<float>>> range;
 
-std::string method_used = "lru";
-std::string model_used = "ds"; // ds: downsampling; mfa: mfa encoding
+std::string method_used = "lru"; // Caching policy
+std::string model_used = "ds"; // ds/mfa. ds: down sampling; mfa: Adaptive-FAM encoding
 std::map<std::string, std::vector<int>> all_map;
 
 int size_x;
@@ -189,7 +188,7 @@ int size_y;
 int size_z;
 
 std::string imagePath = "screenShots/";
-int test_size = 200; // for benchmarks, damsampled from original test trajectory
+int test_size = 400; // number of POVs in a test trajectory
 
 torch::Tensor seq = torch::tensor({{{0.0, 0.0, 0.0},
 									{0.0, 0.0, 0.0},
@@ -205,8 +204,7 @@ int *blockCheck;
 #endif
 
 extern "C" void setTextureFilterMode(bool bLinearFilter);
-extern "C" void initCuda(void *h_volume, cudaExtent volumeSize, int* selectList, int* visibleBlocksList, int visibleBlocksSize, int selectBlockSize);
-extern "C" void initCuda2(void *h_volume,
+extern "C" void initCuda(void *h_volume,
 						  cudaExtent volumeSize,
 						  int* selectList,
 						  int* visibleBlocksList,
@@ -233,8 +231,6 @@ void computeFPS() {
     {
         char fps[256];
         float ifps = 1.f / (sdkGetAverageTimerValue(&timer) / 1000.f);
-		// printf("%3.9f\n", (sdkGetAverageTimerValue(&timer) / 1000.f));
-        // sprintf(fps, "Volume Render: %3.1f fps", ifps);
         sprintf(fps, "Rendering Time: %3.3f s", (sdkGetAverageTimerValue(&timer) / 1000.f));
 
         glutSetWindowTitle(fps);
@@ -256,8 +252,6 @@ void render() {
     size_t num_bytes;
     checkCudaErrors(cudaGraphicsResourceGetMappedPointer((void **)&d_output, &num_bytes,
                                                          cuda_pbo_resource));
-    //printf("CUDA mapped PBO: May access %ld bytes\n", num_bytes);
-
     // clear image
     checkCudaErrors(cudaMemset(d_output, 0, width*height*4));
 
@@ -272,8 +266,8 @@ void render() {
 bool save_screenshot(std::string filename, int w, int h)
 {	
   
-  std::cout << "Writing " << filename << std::endl;
-  //This prevents the images getting padded 
+  // std::cout << "Writing " << filename << std::endl;
+  // This prevents the images getting padded 
   // when the width multiplied by 3 is not a multiple of 4
   glPixelStorei(GL_PACK_ALIGNMENT, 1);
  
@@ -283,8 +277,7 @@ bool save_screenshot(std::string filename, int w, int h)
  
   if (!dataBuffer) return false;
  
-   // Let's fetch them from the backbuffer	
-   // We request the pixels in GL_BGR format, thanks to Berzeger for the tip
+   // Fetch them from the backbuffer, request the pixels in GL_BGR format
    glReadPixels((GLint)0, (GLint)0,
 		(GLint)w, (GLint)h,
 		 GL_BGR, GL_UNSIGNED_BYTE, dataBuffer);
@@ -314,46 +307,29 @@ bool save_screenshot(std::string filename, int w, int h)
 // display results using OpenGL (called by GLUT)
 void display() {
 	while (doingPrefetching) {} // Wait for prefetching finished
-	// std::cout << "In display call, camera index: " << camera_index << std::endl;
 	doingRendering = true;
 
-cudaEvent_t start_event, stop_event;
-cudaEventCreate(&start_event);
-cudaEventCreate(&stop_event);
-cudaEventRecord(start_event);
+	cudaEvent_t start_event, stop_event;
+	cudaEventCreate(&start_event);
+	cudaEventCreate(&stop_event);
+	cudaEventRecord(start_event);
 
 	std::chrono::high_resolution_clock::time_point t1, t2;
 	t1 = std::chrono::high_resolution_clock::now();
-	// std::cout << "do display" << std::endl;
-    // sdkStartTimer(&timer);
 
     // use OpenGL to build view matrix
     GLfloat modelView[16];
     glMatrixMode(GL_MODELVIEW);
     
 	glLoadIdentity();
-	// gluLookAt (0.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0);
-	// std::cout << dis[camera_index] << std::endl;
-	// std::cout << theta[camera_index] << std::endl;
-	// std::cout << phi[camera_index] << std::endl;
-
-#if 0 // global view
-	glRotatef(30.0, 0.0, 1.0, 0.0); // rotate theta degree around y axis
-	glRotatef(45.0, 0.0, 0.0, 1.0); // rotate phi degree around z axis
-	glTranslatef(0.0, 0.0, -1.0);
-#endif
 
     glPushMatrix(); 
-
 	glRotatef(-viewRotation.x, 1.0, 0.0, 0.0);
     glRotatef(-viewRotation.y, 0.0, 1.0, 0.0);
-    // glTranslatef(-viewTranslation.x, -viewTranslation.y, -viewTranslation.z); // delete, only for testing
 
 #if 1 // local view from user trajectory
 	glRotatef(phi[camera_index], 0.0, 1.0, 0.0); // rotate phi degree around z axis
 	glRotatef(theta[camera_index], 0.0, 0.0, 1.0); // rotate theta degree around y axis
-	// glTranslatef(0.0, 0.0, dis[camera_index] + 4);
-	// glTranslatef(0.0, 0.0, dis[camera_index] + 7);
 	glTranslatef(0.0, 0.0, dis[camera_index]);
 #else // global view for demostration figures for paper
 	// glRotatef(30.0, 0.0, 1.0, 0.0); // rotate phi degree around z axis
@@ -372,14 +348,7 @@ cudaEventRecord(start_event);
 	// glTranslatef(0.0, 0.0, 4); // pocific Demo
 #endif
 
-    // glLoadIdentity();
-    // glRotatef(-viewRotation.x, 1.0, 0.0, 0.0);
-    // glRotatef(-viewRotation.y, 0.0, 1.0, 0.0);
     glTranslatef(-viewTranslation.x, -viewTranslation.y, -viewTranslation.z);
-    // glTranslatef(1.0, -viewTranslation.y, -viewTranslation.z);
-    // glTranslatef(0.5, -viewTranslation.y, -viewTranslation.z);
-    // glTranslatef(1.5/76.0 + 1.0/76.0, -viewTranslation.y, -viewTranslation.z);
-    // glTranslatef(1.5/77.0, -viewTranslation.y, -viewTranslation.z);
     glGetFloatv(GL_MODELVIEW_MATRIX, modelView);
     glPopMatrix();
 
@@ -406,15 +375,8 @@ cudaEventRecord(start_event);
     glDisable(GL_DEPTH_TEST);
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-#if 0
-    // draw using glDrawPixels (slower)
-    glRasterPos2i(0, 0);
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
-    glDrawPixels(width, height, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, 0);
-#else
-    // draw using texture
 
+	// draw using texture (faster)
     // copy from pbo to texture
     glBindBuffer(GL_PIXEL_UNPACK_BUFFER_ARB, pbo);
     glBindTexture(GL_TEXTURE_2D, tex);
@@ -436,28 +398,20 @@ cudaEventRecord(start_event);
 
     glDisable(GL_TEXTURE_2D);
     glBindTexture(GL_TEXTURE_2D, 0);
-#endif
 
     glutSwapBuffers();
     glutReportErrors();
 
-    // sdkStopTimer(&timer);
-	// printf("````````````````````%3.9f\n", (sdkGetAverageTimerValue(&timer) / 1000.f));
     computeFPS();
 
 	t2 = std::chrono::high_resolution_clock::now();
 
-cudaEventRecord(stop_event);
-cudaEventSynchronize(stop_event);
-float milliseconds = 0;
-cudaEventElapsedTime(&milliseconds, start_event, stop_event);
-// std::cout << "Cuda event time: " << milliseconds/1000 << std::endl;
+	cudaEventRecord(stop_event);
+	cudaEventSynchronize(stop_event);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start_event, stop_event);
 
 	render_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()/(float)1000000; // seconds
-	// std::cout << "Rendering time: " << render_time << " seconds" << std::endl;
-
-	// wait for finish of prefetching
-	// while (doingPrefetching){}
 
 	doingRendering = false;
 
@@ -597,7 +551,6 @@ void reshape(int w, int h) {
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
     glOrtho(0.0, 1.0, 0.0, 1.0, 0.0, 1.0);
-	// gluPerspective(30.0, 1.0, 1.0, 40.0);
 
 }
 
@@ -613,8 +566,7 @@ void cleanup() {
         glDeleteBuffers(1, &pbo);
         glDeleteTextures(1, &tex);
     }
-    // Calling cudaProfilerStop causes all profile data to be
-    // flushed before the application exits
+    // Calling cudaProfilerStop causes all profile data to be flushed before the application exits
     checkCudaErrors(cudaProfilerStop());
 
 	free(cornerBlockMapArray);
@@ -665,32 +617,6 @@ void initPixelBuffer() {
     glBindTexture(GL_TEXTURE_2D, 0);
 }
 
-#if 0
-// Load raw data from disk
-void *loadRawFile(char *filename, size_t size) {
-    // printf("filename %s\n", filename);
-    FILE *fp = fopen(filename, "rb");
-
-    if (!fp)
-    {
-        fprintf(stderr, "Error opening file '%s'\n", filename);
-        return 0;
-    }
-
-    void *data = malloc(size);
-    size_t read = fread(data, 1, size, fp);
-    fclose(fp);
-
-// #if defined(_MSC_VER_)
-//     printf("Read '%s', %Iu bytes\n", filename, read);
-// #else
-//     printf("Read '%s', %zu bytes\n", filename, read);
-// #endif
-
-    return data;
-}
-#endif
-
 // General initialization call for CUDA Device
 int chooseCudaDevice(int argc, const char **argv, bool bUseOpenGL) {
     int result = 0;
@@ -705,147 +631,6 @@ int chooseCudaDevice(int argc, const char **argv, bool bUseOpenGL) {
     }
 
     return result;
-}
-
-int getCornerIndex(int corner_x, int corner_y, int corner_z) {
-	return corner_x + corner_y*17 + corner_z*17*17;
-}
-
-std::vector<std::vector<int>> getCorners(int blockIndex, int block_num, int unit) {
-	int z = blockIndex/(block_num*block_num);
-	int remain = blockIndex%(block_num*block_num);
-	int y = remain/block_num;
-	int x = remain%block_num;
-	
-	int x_offset = x*unit;
-	int y_offset = y*unit;
-	int z_offset = z*unit;
-
-	std::vector<std::vector<int>> corners;
-	std::vector<int> corner;
-
-	corner.push_back(0 + x_offset);
-	corner.push_back(0 + y_offset);
-	corner.push_back(0 + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	corner.push_back(unit + x_offset);
-	corner.push_back(0 + y_offset);
-	corner.push_back(0 + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-
-	corner.push_back(0 + x_offset);
-	corner.push_back(unit + y_offset);
-	corner.push_back(0 + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	corner.push_back(unit + x_offset);
-	corner.push_back(unit + y_offset);
-	corner.push_back(0 + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	corner.push_back(0 + x_offset);
-	corner.push_back(0 + y_offset);
-	corner.push_back(unit + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	corner.push_back(unit + x_offset);
-	corner.push_back(0 + y_offset);
-	corner.push_back(unit + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	corner.push_back(0 + x_offset);
-	corner.push_back(unit + y_offset);
-	corner.push_back(unit + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	corner.push_back(unit + x_offset);
-	corner.push_back(unit + y_offset);
-	corner.push_back(unit + z_offset);
-	corners.push_back(corner);
-	corner.clear();
-
-	return corners;
-}
-
-bool isInside(int blockIndex, int block_num, int unit, int corner_x, int corner_y, int corner_z) {
-	int z = blockIndex/(block_num*block_num);
-	int remain = blockIndex%(block_num*block_num);
-	int y = remain/block_num;
-	int x = remain%block_num;
-	
-	int x_lower = x*unit;
-	int y_lower = y*unit;
-	int z_lower = z*unit;
-	
-	int x_upper = x_lower + unit;
-	int y_upper = y_lower + unit;
-	int z_upper = z_lower + unit;
-
-	if ((corner_x >= x_lower && corner_x <= x_upper)&&(corner_y >= y_lower && corner_y <= y_upper)&&(corner_z >= z_lower && corner_z <= z_upper)) {
-		return true;
-	} else {
-		return false;
-	}
-}
-
-void getCoordinates(int corner, int &x, int &y, int &z) {
-	z = corner/(17*17); // 1/(17*17) integer portion
-	int remain = corner%(17*17); // 1%(17*17) remainding portion
-	y = remain/(17); 
-	x = remain%(17);
-}
-
-
-std::vector<int> getConnectBlocks(int corner, int level) {
-	int size = pow(2, (level + 1)); // if level = 0, then size = 2  and offset = 0            and totalBlockNum = 8    and unit = 8
-									// if level = 1, then size = 4  and offset = 8            and totalBlockNum = 64   and unit = 4
-									// if level = 2, then size = 8  and offset = 64 + 8       and totalBlockNum = 512  and unit = 2
-									// if level = 3, then size = 18 and offset = 512 + 64 + 8 and totalBlockNum = 4096 and unit = 1
-	int offset = 0;
-	if (level == 0 ) { offset = 0; }
-	if (level == 1 ) { offset = 8; }
-	if (level == 2 ) { offset = 64 + 8; }
-	if (level == 3 ) { offset = 512 + 64 + 8; }
-	int totalBlockNum = size*size*size;
-	int unit = 16/size;
-	std::vector<int> connectBlocks;
-
-	int x, y, z;
-	getCoordinates(corner, x, y, z);
-	for (int i = 0; i < totalBlockNum; i++) {
-		if (isInside(i, size, unit, x, y, z)) {
-			connectBlocks.push_back(i + offset);
-		}
-	}
-	return connectBlocks;
-}
-
-
-std::map<int, std::vector<std::vector<int>>> createCornerBlockMap(int volume_size_4, int block_size) {
-	int block_num = (volume_size_4 - 1)/(block_size - 2) + 1; // 16 + 1
-	int cover_num = block_num*block_num*block_num;
-	int levels = 4;
-
-	std::map<int, std::vector<std::vector<int>>> currentCornerBlockMap;
-	for (int i = 0; i < cover_num; i++) {
-		std::cout << i << std::endl;
-		std::vector<std::vector<int>> connectBlocksAll;
-		for (int j = 0; j < levels; j++) {
-			std::vector<int> connectBlocks = getConnectBlocks(i, j);
-			connectBlocksAll.push_back(connectBlocks);
-		}
-        currentCornerBlockMap[i] = connectBlocksAll;
-	}
-	return currentCornerBlockMap;
 }
 
 std::map<int, std::vector<std::vector<float>>> getRange(std::string ellipses_path, int test_num, int points_num, int factor) {
@@ -915,14 +700,6 @@ std::map<int, std::vector<std::vector<float>>> getRange(std::string ellipses_pat
         }
         ellipses_table_factor[i] = cur_point;
     }
-    /*   
-    for (int i = 0; i < test_num; i++) {
-        for (int j = 0; j < points_num/factor; j++) {
-            std::cout << i << "---" << ellipses_table_factor[i].at(j).at(0) << "," << ellipses_table_factor[i].at(j).at(1) << ", "  << ellipses_table_factor[i].at(j).at(2) << std::endl;
-        }
-    }
-    */
-    
  
     return ellipses_table_factor;
     
@@ -934,34 +711,6 @@ void updateSeq(float x, float y, float z) {
 	seq[0][2][0] = x;
 	seq[0][2][1] = y;
 	seq[0][2][2] = z;
-}
-
-
-
-void getEllipsePoints(float mu_theta, float mu_phi, float sigma_theta, float sigma_phi, float correlation,
-				 int points_num,
-				 std::vector<float> &thetas, std::vector<float> &phis) {
-	float a = sigma_theta*sigma_theta;
-    float c = sigma_phi*sigma_phi;
-    float b = correlation*sigma_theta*sigma_phi;
-	float lamda_1 = (a + c)/2 + sqrt(((a - c)/2)*((a - c)/2) + b*b);
-    float lamda_2 = (a + c)/2 - sqrt(((a - c)/2)*((a - c)/2) + b*b);
-    float angle = atan2(b, lamda_1 - a);
-	float angle_unit = M_PI*2/points_num;
-	for (int i = 0; i < points_num; i++) {
-        float cur_angle = i*angle_unit;
-
-        float x = sqrt(lamda_1)*cos(angle)*cos(cur_angle) -
-                  sqrt(lamda_2)*sin(angle)*sin(cur_angle);
-        float y = sqrt(lamda_1)*sin(angle)*cos(cur_angle) +
-                  sqrt(lamda_2)*cos(angle)*sin(cur_angle);
-
-        x = x + mu_theta;
-        y = y + mu_phi;
-			
-		thetas.push_back(x);
-		phis.push_back(y);
-	}
 }
 
 void timerCall(int) {
@@ -987,7 +736,7 @@ void timerCall(int) {
 
 	float find_visible_blocks_time, cache_time, info_time, cudainit_time, cache_total_time;
 	std::chrono::high_resolution_clock::time_point t1, t2, t_start, t_end;
-	std::cout << "---------------------------------------" << camera_index << "------------------------------------" << std::endl;
+	std::cout << "---------------------------------------POV: " << camera_index << "------------------------------------" << std::endl;
 
 
 	float x, y, z;
@@ -996,54 +745,21 @@ void timerCall(int) {
 		
 
 	t1 = std::chrono::high_resolution_clock::now();
-	// visible_blocks.clear();
-	// t_start = std::chrono::high_resolution_clock::now();
-	// getCurrentVisibleBlocks(theta[camera_index], phi[camera_index], dis[camera_index], VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4, BLOCK_SIZE, 30, visible_blocks);
-	// t_end = std::chrono::high_resolution_clock::now();
-	// find_visible_blocks_time = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000;
-	// std::cout << "=======timecall find vb time Old: " << find_visible_blocks_time << std::endl;
 	
 	visible_blocks.clear();
 	t_start = std::chrono::high_resolution_clock::now();
-	// getCurrentVisibleBlocks(theta[camera_index], phi[camera_index], dis[camera_index], VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4, BLOCK_SIZE, 30, visible_blocks);
 	getCurrentVisibleBlocksFast(theta[camera_index], phi[camera_index], dis[camera_index], VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4, BLOCK_SIZE, 30, visible_blocks, cornerBlockMapArray, blockCheck);
 	t_end = std::chrono::high_resolution_clock::now();
 	find_visible_blocks_time = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000;
-	// std::cout << "=======timecall find vb time New: " << find_visible_blocks_time << std::endl;
-
-	// std::cout << "vb number: " << visible_blocks.size() << std::endl;
-	// testing starts //
-	// visible_blocks.clear();
-	// visible_blocks.push_back(0);
-	// visible_blocks.push_back(1);
-	// visible_blocks.push_back(2);
-	// visible_blocks.push_back(3);
-	// visible_blocks.push_back(4);
-	// visible_blocks.push_back(5);
-	// visible_blocks.push_back(6);
-	// visible_blocks.push_back(7);
-	// for (int i = 0; i < 2*2*2; i++) {
-	 	// visible_blocks.push_back(i);
-	 	// visible_blocks.push_back(i + 8);
-	 	// visible_blocks.push_back(i + 8 + 64);
-	 	// visible_blocks.push_back(i + 8 + 64 + 512);
-	// }
-	// testing ends // 
-	
-
 
 	int hit = 0;
 	int miss = 0;
 	t_start = std::chrono::high_resolution_clock::now();
 	hit_blocks.clear();
 	miss_blocks.clear();
-	// std::cout << "vbs: ";
 	for (int j = 0; j < visible_blocks.size(); j++) {
-		// std::cout << j << ", ";
 		int hit_miss;
-// #if defined(MFA)
 		if (model_used == "mfa") { 
-			// std::cout << "mfa version" << std::endl;
 			hit_miss = updateCacheAndCacheDataMfa(cache, cache_mem,
 												  cache_knot_data, cache_ctrlpts_data,
 												  visible_blocks.at(j),
@@ -1052,11 +768,8 @@ void timerCall(int) {
 												  mfaFilePath,
 												  cache_knot_size_list);
 		} else {
-// #else
-			// std::cout << "ds version" << std::endl;
 			hit_miss = updateCacheAndCacheData(cache, cache_mem, cache_data, visible_blocks.at(j), microBlockSize, "lru", volumeFilePath, camera_index);
 		}
-// #endif
 		hit_miss?hit++:miss++;
 		if (hit_miss) {
 			hit_blocks.push_back(visible_blocks.at(j));
@@ -1065,29 +778,6 @@ void timerCall(int) {
 		}
 	}
 	
-
-
-	// for (int k = 0; k < cache_knot_size_list.size(); k++) {
-	// 	std::cout << cache_knot_size_list.at(k) << " ";
-	// }
-	// std::cout << std::endl;
-	// std::cout << "cache size: " << cache_mem.size() << "; knot_size_list size: " << cache_knot_size_list.size() << std::endl;
-	// std::cout << "miss: " << miss << std::endl;
-	// std::cout << "hit: " << hit << std::endl;
-/*
-	std::cout << "v blocks:" << std::endl;	
-	for (int j = 0; j < visible_blocks.size(); j++) { std::cout << visible_blocks.at(j) << " ";}
-	std::cout << std::endl;
-	std::cout << "cache:" << std::endl;	
-	std::cout << "cache size: " << cache.size() << std::endl;	
-	for (int j = 0; j < cache.size(); j++) { std::cout << cache.at(j) << " ";}
-	std::cout << std::endl;
-	std::cout << "cache_mem:" << std::endl;	
-	std::cout << "cache_mem size: " << cache_mem.size() << std::endl;	
-	for (int j = 0; j < cache_mem.size(); j++) { std::cout << cache_mem.at(j) << " ";}
-	std::cout << std::endl;
-*/
-
 	t_end = std::chrono::high_resolution_clock::now();
 	cache_time = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000;
 
@@ -1127,11 +817,7 @@ void timerCall(int) {
 	outf_vb << "\n";
 	outf_vb.close();
 
-
-
-
 	t_start = std::chrono::high_resolution_clock::now();
-	// All blocks label, visible blocks labels 1, others 0, will be sent to device.	
 	int totalBlockNum = X_BLOCK_NUM_LEVEL_1*Y_BLOCK_NUM_LEVEL_1*Z_BLOCK_NUM_LEVEL_1 +
 						X_BLOCK_NUM_LEVEL_2*Y_BLOCK_NUM_LEVEL_2*Z_BLOCK_NUM_LEVEL_2 +
 						X_BLOCK_NUM_LEVEL_3*Y_BLOCK_NUM_LEVEL_3*Z_BLOCK_NUM_LEVEL_3 +
@@ -1164,28 +850,6 @@ void timerCall(int) {
 	cudaMalloc((int **)&cache_knot_size_list_d, cache_knot_size_list.size()*sizeof(int));
 	cudaMemcpy(cache_knot_size_list_d, cache_knot_size_list_h, cache_knot_size_list.size()*sizeof(int), cudaMemcpyHostToDevice);
 
-/*	
-	int visible_blocks_h[visible_blocks.size()];
-	for (int j = 0; j < visible_blocks.size(); j++) {
-		visible_blocks_h[j] = visible_blocks.at(j);
-	}
-	int *visible_blocks_d;
-	cudaMalloc((int **)&visible_blocks_d, visible_blocks.size()*sizeof(int));
-	cudaMemcpy(visible_blocks_d, visible_blocks_h, visible_blocks.size()*sizeof(int), cudaMemcpyHostToDevice);
-	t_end = std::chrono::high_resolution_clock::now();
-	info_time = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000;
-*/
-
-	// Copy cache_knot_data to GPU
-	// float *cache_knot_data_d;
-	// cudaMalloc((float **)&cache_knot_data_d, cache_knot_data_size);
-	// cudaMemcpy(cache_knot_data_d, cache_knot_data, cache_knot_data_size, cudaMemcpyHostToDevice);
-	// Copy cache_ctrlpts_data to GPU
-	// float *cache_ctrlpts_data_d;
-	// cudaMalloc((float **)&cache_ctrlpts_data_d, cache_ctrlpts_data_size);
-	// cudaMemcpy(cache_ctrlpts_data_d, cache_ctrlpts_data, cache_ctrlpts_data_size, cudaMemcpyHostToDevice);
-
-
 	cudaFree(cache_knot_data_d);
 	cudaMalloc(&cache_knot_data_d, cache_knot_data_size);
 	cudaMemcpy(cache_knot_data_d, cache_knot_data, cache_knot_data_size, cudaMemcpyHostToDevice);
@@ -1199,7 +863,7 @@ void timerCall(int) {
 	size_z = volumeSizeAll.depth;
 	t_start = std::chrono::high_resolution_clock::now();
 	
-	initCuda2(cache_data,
+	initCuda(cache_data,
 			  volumeSizeAll,
 			  selectList_d,
 			  cache_mem_d,
@@ -1218,7 +882,6 @@ void timerCall(int) {
 
 	t2 = std::chrono::high_resolution_clock::now();
 	cache_total_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count()/(float)1000000;
-	// std::cout << "Check vb time: " << cache_total_time << " seconds" << std::endl;
 
 	std::ofstream myfile;
 	myfile.open("benchmark.txt", std::ios_base::out | std::ios_base::app);
@@ -1263,7 +926,6 @@ void timerCall(int) {
 	camera_index++;
 	
 	glutTimerFunc(100, timerCall, 0);
-	// glutTimerFunc(100000, timerCall, 0); // delete
 }	
 
 
@@ -1275,7 +937,6 @@ void *renderFunc(void *arg) {
     glutMouseFunc(mouse);
     glutMotionFunc(motion);
     glutReshapeFunc(reshape);
-    // glutIdleFunc(idle);
 	glutTimerFunc(0, timerCall, 0);
 
     initPixelBuffer();
@@ -1359,10 +1020,10 @@ void *renderThreadFunc(void *threadArg) {
 
     sdkCreateTimer(&timer);
 
-    printf("Press '+' and '-' to change density (0.01 increments)\n"
-           "      ']' and '[' to change brightness\n"
-           "      ';' and ''' to modify transfer function offset\n"
-           "      '.' and ',' to modify transfer function scale\n\n");
+    // printf("Press '+' and '-' to change density (0.01 increments)\n"
+    //        "      ']' and '[' to change brightness\n"
+    //        "      ';' and ''' to modify transfer function offset\n"
+    //        "      '.' and ',' to modify transfer function scale\n\n");
 	std::cout << "pid: " << getpid() << std::endl;
     // calculate new grid size
     gridSize = dim3(iDivUp(width, blockSize.x), iDivUp(height, blockSize.y));
@@ -1449,7 +1110,6 @@ void *prefetchThreadFunc(void *threadArg) {
 		// Block here and wait for rendering starts
 		while (!doingRendering) {}
 		if (prefetchOn) {
-#if 1 // prefetch on/off 
 			doingPrefetching = true;
 			early_stop = 0;
 			// Find visible blocks
@@ -1457,21 +1117,12 @@ void *prefetchThreadFunc(void *threadArg) {
 			std::chrono::high_resolution_clock::time_point t_s, t_e;
 			visible_blocks_predict.clear();
 			t_start = std::chrono::high_resolution_clock::now();
-			// std::cout << "in prefetch process: camera index: " << camera_index << std::endl;
 			if (method_used == "appa") {
-				// getCurrentVisibleBlocksLUT(theta_predict[camera_index], phi_predict[camera_index], dis_predict[camera_index],
-				// 						visible_blocks_predict);
 				float delta_d = 0.1;
 			   	float delta_theta = 6.0;
 	    		float delta_phi = 6.0;
 				char view_pos[50]; 
 			    float norm_dis, norm_theta, norm_phi;
-
-				// std::cout  << "camera:::: " << dis[camera_index - 1] << std::endl;
-				// std::cout  << "camera:::: " << theta[camera_index - 1] << std::endl;
-				// std::cout  << "camera:::: " << phi[camera_index - 1] << std::endl;
-
-
 			    double intpart, fractpart;
 			    fractpart = modf(double(dis[camera_index - 1]/delta_d) , &intpart);
 			    norm_dis = float(intpart)*delta_d;
@@ -1482,26 +1133,14 @@ void *prefetchThreadFunc(void *threadArg) {
 			    norm_theta = float(intpart)*delta_theta;
 			    fractpart = modf(double(phi[camera_index - 1]/delta_phi) , &intpart);
 			    norm_phi = float(intpart)*delta_phi;
-				if (norm_dis < 1.0) { norm_dis = 1.0; } // for tvcg revision, test 2 trajectory will have d = 0.9 which not in the appa table
+				if (norm_dis < 1.0) { norm_dis = 1.0; }
 			    sprintf(view_pos, "%4.2f%5.1f%5.1f", norm_dis, norm_theta, norm_phi);
-				// printf("view_pos::::::: %s\n", view_pos);
 				std::map<std::string, std::vector<int> >::iterator sample;
 			    sample = all_map.find(view_pos);
-				// printf("view_pos: %s\n", view_pos);
 				if (sample == all_map.end()) { std::cout << "Not find in table" << std::endl; printf("view_pos: %s\n", view_pos); exit(EXIT_SUCCESS); }
-				// std::cout << "size::::::: " << sample->second.size() << std::endl;
 				visible_blocks_predict = sample->second;
 			}
 			if (method_used == "markov" || method_used == "lstm") {	
-				/*
-				getCurrentVisibleBlocks(theta_predict[camera_index], phi_predict[camera_index], dis_predict[camera_index],
-										VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4,
-										BLOCK_SIZE,
-										30,
-										visible_blocks_predict);
-				*/
-				// usleep(4000); // sleep to simulate the inference time and matching rmdn as well, results saved as "lstm_sleep.txt"
-				usleep(10000); // sleep to simulate the inference time and matching rmdn as well
 				if (isnan(phi_predict[camera_index])) { std::cout << "\\\\\\\\\\\\find in org filei, phi: " << phi_predict[camera_index] << std::endl; }
 				getCurrentVisibleBlocksFast(theta_predict[camera_index], phi_predict[camera_index], dis_predict[camera_index],
 										VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4,
@@ -1511,45 +1150,10 @@ void *prefetchThreadFunc(void *threadArg) {
 										cornerBlockMapArray,
 										blockCheck);
 			}
-			if (method_used == "rmdn") { // for RmdnCache
-				if (camera_index >= 3 && camera_index <= 399) { // Skip the first 2 and the last camera locations
-					getCurrentVisibleBlocksRange(theta_predict[camera_index], phi_predict[camera_index], dis_predict[camera_index],
-												 camera_index,
-												 VOLUME_SIZE_1, VOLUME_SIZE_2, VOLUME_SIZE_3, VOLUME_SIZE_4,
-												 BLOCK_SIZE,
-												 30,
-												 visible_blocks_predict,
-												 range,
-												 cornerBlockMapArray,
-												 blockCheck);
-					/*
-					std::ofstream outf;
-					outf.open("prefetchedVbs.txt", std::ios_base::app);
-					for (int i = 0; i < visible_blocks_predict.size(); i++) {
-						outf << visible_blocks_predict[i] << " ";
-					}
-					outf << "\n";
-					outf.close();
-					*/
-				}
-			}
-
-			// std::cout << "vb size::::::: " << visible_blocks_predict.size() << std::endl;
 			t_end = std::chrono::high_resolution_clock::now();
 			prefetch_find_visible_blocks_time = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000;
 			inference_time = std::chrono::duration_cast<std::chrono::microseconds>(t_e - t_s).count()/(float)1000000;
 		
-			/*
-			std::ofstream outf;
-			outf.open("findVbtime.txt", std::ios_base::app);
-			outf << prefetch_find_visible_blocks_time << "\n";
-			outf.close();
-
-			outf.open("inferencetime.txt", std::ios_base::app);
-			outf << inference_time << "\n";
-			outf.close();
-			*/
-	
 			t_start = std::chrono::high_resolution_clock::now();
 			int hit = 0;
 			int miss = 0;
@@ -1568,11 +1172,9 @@ void *prefetchThreadFunc(void *threadArg) {
 					} else {
 						hit_miss = updateCacheAndCacheData(cache, cache_mem, cache_data, visible_blocks_predict.at(i), microBlockSize, "lru", volumeFilePath, camera_index);
 					}
-					// int hit_miss = updateCacheAndCacheData(cache, cache_mem, cache_data, visible_blocks_predict.at(i), microBlockSize, "lru", volumeFilePath, camera_index);
 					hit_miss?hit++:miss++;
 					prefetched_size++;
 				} else {
-					// std::cout << "Prefetch Early Stops!" << std::endl;
 					early_stop = 1;
 					break;
 				}
@@ -1581,17 +1183,9 @@ void *prefetchThreadFunc(void *threadArg) {
 			t_end = std::chrono::high_resolution_clock::now();
 			prefetch_cacheTime = std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000 + prefetch_find_visible_blocks_time;
 			
-			/*
-			outf.open("prefetchtime.txt", std::ios_base::app);
-			outf << std::chrono::duration_cast<std::chrono::microseconds>(t_end - t_start).count()/(float)1000000 << "\n";
-			outf.close();
-			*/
-
-			// std::cout << "Done prefetching with " << hit << " hit; " << miss << " miss." << std::endl;
 			doingRendering = false;
 			doingPrefetching = false;
 		}
-#endif
 	}
 	std::cout << "prefecth thread close" << std::endl;
 	pthread_exit(NULL);
@@ -1610,22 +1204,19 @@ int main(int argc, char **argv) {
 	sampleDistance = atof(argv[1]);
 	std::string method(argv[2]);
 	std::string model(argv[3]);
-	std::string test_dataset_idx(argv[4]);
 	method_used = method;
 	model_used = model;
     std::cout << "Method: " << method << std::endl;
-    std::cout << "Model: " << model << std::endl;
-    std::cout << "Test dataset: " << test_dataset_idx << std::endl;
+	std::string encoding_method = (model=="ds")?"Down sampling":"Adaptive-FAM";
+    std::cout << "Encoding Method: " << encoding_method << std::endl;
 
 	// Read real camera trajectory
 	std::ifstream infile;
-	
-	std::string camera_trajectory = "trajectories/test_" + test_dataset_idx + ".dat";
-	// std::string camera_trajectory = "../notebook/test_" + test_dataset_idx + "_downsampled_by_2.dat";
+	std::string camera_trajectory = "trajectories/test_1.dat"; // change to other user trajectories here: 1 to 4
 
   	infile.open(camera_trajectory, std::ios::binary);
 	assert(infile);
-	std::cerr << "Open " << camera_trajectory << std::endl;
+	std::cerr << "Open user trajectory: " << camera_trajectory << std::endl;
 	dis = new float[test_size];
 	theta = new float[test_size];
 	phi = new float[test_size];
@@ -1633,20 +1224,19 @@ int main(int argc, char **argv) {
 	infile.read(reinterpret_cast<char *>(dis), sizeof(float)*test_size);
 	infile.read(reinterpret_cast<char *>(theta), sizeof(float)*test_size);
 	infile.read(reinterpret_cast<char *>(phi), sizeof(float)*test_size);
-	std::cout << "d t p: " << dis[0] << ", " << theta[0] << ", " << phi[0] << std::endl;
 	infile.close();
 	if (method_used == "lru") {
 		std::cout << "Using LRU, no prefetch" << std::endl;
 	} else {
 		prefetchOn = true;
 		if (method_used == "appa") {
+			std::cout << "Using APPA, do prefetch" << std::endl;
 			// Load sample maps
-			infile.open("../tools/lookUpTable_0.1-6.0-6.0.dat");
-			// infile.open("../tools/lookUpTable_0.1-1.0-1.0.dat");
+			infile.open("appa/lookUpTable_0.1-6.0-6.0.dat");
 			assert(infile);
+			std::cerr << "Open APPA lookup table: " << "appa/lookUpTable_0.1-6.0-6.0.dat" << std::endl;
 			int map_size;
 			infile.read(reinterpret_cast<char *>(&map_size), sizeof(int));
-			printf("map_size = %d\n",map_size );
 			std::vector<int> items;
 			
 			char temp[4]; // debug
@@ -1655,68 +1245,33 @@ int main(int argc, char **argv) {
 			{
 				char index[50];
 				infile.read(reinterpret_cast<char *>(index), sizeof(char)*50);
-				// printf("index = %s\n", index); // debug
-				if (strncasecmp (temp, index, 4) != 0) { // debug
-					strncpy(temp, index, 4); // debug
-					printf("index = %s\n", index); // debug
-				} // debug
-				// printf("index = %s\n", index); // debug
-				  
 				int item_size;
 				infile.read(reinterpret_cast<char *>(&item_size), sizeof(int));
-				//printf("item_size = %d\n", item_size);
-				// printf("items = ");
-				//
-				
-				if (strncasecmp ("1.00 12.0 36.0", index, 14) == 0) {
-					std::cout << "item_size: " << item_size << std::endl;
-				}
-
 				for (int j = 0; j < item_size; ++j)
 				{   
 					int elem;
 					infile.read(reinterpret_cast<char *>(&elem), sizeof(int));
-					// printf("%d ", elem);
 					items.push_back(elem);  
 				}
-				// printf("\n");
 				all_map.insert(std::pair<std::string, std::vector<int> >(index, items));
 				items.clear();
 			}
 			infile.close();
-		} else if (method_used == "rmdn-realtime") {
-			// do nothing
-		} else { // methods make trajectory prediction
-			// Read predicted camera trajectory
-			// Markov Method
+		} else {
+			// ForeCache Method
 			if (method_used == "markov") {
-				std::cout << "Using ForeCache (Markov), do prefetch" << std::endl;
-				camera_trajectory_predict = "../performance/data/markov_prediction/markov_predict1.dat"; // ForeCache
-				// camera_trajectory_predict = "../performance/data/markov_prediction/markov_predict2.dat"; // ForeCache
-				// camera_trajectory_predict = "../performance/data/markov_prediction/markov_predict3.dat"; // ForeCache
-				// camera_trajectory_predict = "../performance/data/markov_prediction/markov_predict4.dat"; // ForeCache
-				// camera_trajectory_predict = "../performance/data/markov_prediction/markov_predict5.dat"; // ForeCache
+				std::cout << "Using ForeCache, do prefetch" << std::endl;
+				camera_trajectory_predict = "forecache/markov_predict1.dat"; // change to other ForeCache predicted trajectories here: 1 to 4
 			}
 			// LSTM Method
 			if (method_used == "lstm") {
 				std::cout << "Using LSTM, do prefetch" << std::endl;
-				camera_trajectory_predict = "../performance/data/V2_js_predict/predict_test1.dat"; // LSTM
-				// camera_trajectory_predict = "../performance/data/V2_js_predict/predict_test2.dat"; // LSTM
-				// camera_trajectory_predict = "../performance/data/V2_js_predict/predict_test3.dat"; // LSTM
-				// camera_trajectory_predict = "../performance/data/V2_js_predict/predict_test4.dat"; // LSTM
-				// camera_trajectory_predict = "../performance/data/V2_js_predict/predict_test5.dat"; // LSTM
+				camera_trajectory_predict = "lstm/predict_test1.dat"; // change to other LSTM predicted trajectories here: 1 to 4
 			}
-			// Rmdn Method
-			if (method_used == "rmdn") {
-				std::cout << "Using rmdnCache (LSTM + MDN), do prefetch" << std::endl;
-				camera_trajectory_predict = "../performance/data/mdn_predict/predict_test1.dat"; // Rmdn
-				std::string ellipses = "../performance/data/mdn_predict/predict_range_test1_dtp.txt"; // LSTM
-				range = getRange(ellipses, test_size, 8, 2);
-			}
-
+		
 			infile.open(camera_trajectory_predict, std::ios::binary);
 			assert(infile);
-			std::cerr << "Open " << camera_trajectory << std::endl;
+			std::cerr << "Open predicted user trajectory: " << camera_trajectory_predict << std::endl;
 			dis_predict = new float[test_size];
 			theta_predict = new float[test_size];
 			phi_predict = new float[test_size];
@@ -1725,12 +1280,12 @@ int main(int argc, char **argv) {
 			infile.read(reinterpret_cast<char *>(theta_predict), sizeof(float)*test_size);
 			infile.read(reinterpret_cast<char *>(phi_predict), sizeof(float)*test_size);
 			infile.close();
-			for (int ii = 0; ii < test_size; ii++) { // this fix is needed when dealing test4
+			for (int ii = 0; ii < test_size; ii++) { // use the previous POV's phi when the current phi is not predicted correctly. This fix is only needed for ForeCache method on test trajectory 4.
 				if (isnan(phi_predict[ii])) {
 					std::cout << "nan phi at " << ii << std::endl;
 				 	phi_predict[ii] = phi_predict[ii - 1];
 				}			
-			}	
+			}
 		}
 	}
 	struct threadData thread_data;
